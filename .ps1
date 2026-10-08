@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 <#
-  The Play — 开发辅助脚本
+  The Bunker — 开发辅助脚本
 
   用法：
     .\.ps1                     在项目根目录直接运行
@@ -13,19 +13,18 @@
     [1] 安装依赖      npm install + .install_electron.mjs（经淘宝镜像下载 Electron 二进制）
     [2] 开发环境      npm run electron:dev   （concurrently: vite + electron）
     [3] 构建生产版本  npm run build          （vite build → dist/）
-    [4] 打包应用      npm run electron:build （vite build && electron-builder）
-    [5] 类型检查      npx tsc --noEmit
-    [6] 图集工具      node scripts/gallery.js
-    [7] 清理产物      dist / dist-electron / release
+    [4] 类型检查      npm run lint           （tsc --noEmit）
+    [5] 预览构建      npm run preview         （vite preview 静态产物）
+    [6] 清理产物      dist
 
-  需要跑测试时直接用命令行（本机测试是硬要求，不放进交互菜单）：
-    npm run test:spg          主进程/引擎/搜索等 9 个套件的单元与静态回归
-    npm run test:proxy-sync   代理设置的跨进程同步
-    npm run test:ui           界面回归（自动起 vite + Electron 截图断言布局）
+  说明：
+    · 本项目使用 Vite（端口 3000）+ Electron（main: electron/main.js）+ React + Tailwind v4。
+    · 尚未接入 electron-builder 打包流程，故脚本中不含“打包应用”与“图集工具”等菜单项。
+    · 需要手动跑其他命令时直接用命令行即可（如 npm run electron 单独启动 Electron）。
 #>
 
 # ── 基础设置 ────────────────────────────────────────────────
-$Host.UI.RawUI.WindowTitle = "The Play — 开发助手"
+$Host.UI.RawUI.WindowTitle = "The Bunker — 开发助手"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'Continue'
 
@@ -103,7 +102,7 @@ function Install-Deps {
 function Start-Dev {
     if (-not (Test-Deps)) { Pause-Return; return }
     Write-Step "开发环境（Vite + Electron）"
-    Write-Info "页面地址 http://localhost:5173（vite.config.ts 中 strictPort: true）"
+    Write-Info "页面地址 http://localhost:3000（vite.config.ts 中 dev 脚本 --port=3000）"
     Write-Info "按 Ctrl+C 停止"
     Write-Host ""
     & npm.cmd run electron:dev
@@ -117,29 +116,23 @@ function Build-Prod {
     Pause-Return
 }
 
-function Package-App {
-    if (-not (Test-Deps)) { Pause-Return; return }
-    Write-Info "打包配置来自 package.json 内联 build 字段（appId=com.player.app）"
-    Invoke-Npm -NpmArgs @('run', 'electron:build') -SuccessMsg "打包完成" -FailMsg "打包失败"
-    Pause-Return
-}
-
 function Type-Check {
     if (-not (Test-Deps)) { Pause-Return; return }
-    Write-Step "TypeScript 类型检查（tsc --noEmit）"
-    & npm.cmd exec -- tsc --noEmit
+    Write-Step "TypeScript 类型检查（tsc --noEmit，对应 npm run lint）"
+    & npm.cmd run lint
     if ($LASTEXITCODE -ne 0) { Write-Err "发现类型错误（退出码 $LASTEXITCODE）" }
     else { Write-Ok "类型检查通过" }
     Pause-Return
 }
 
-function Invoke-Gallery {
+function Start-Preview {
     if (-not (Test-Deps)) { Pause-Return; return }
-    Write-Step "图集工具（scripts/gallery.js）"
-    Write-Info "用法  npm run gallery -- <id|url> [--pages 1-5] [--dry-run]"
-    Write-Info "示例  npm run gallery -- 761277 --pages 1-5"
+    Write-Step "预览生产构建（vite preview）"
+    Write-Info "先确保已执行 [3] 构建出 dist/，再启动静态预览服务器"
+    Write-Info "按 Ctrl+C 停止"
     Write-Host ""
-    & node (Join-Path $Root 'scripts\gallery.js') --help
+    & npm.cmd run preview
+    Write-Info "预览已退出"
     Pause-Return
 }
 
@@ -147,13 +140,12 @@ function Invoke-Gallery {
 function Clean-Build {
     Write-Step "清理构建产物"
     $found = $false
-    foreach ($t in @('dist', 'dist-electron', 'release')) {
-        $p = Join-Path $Root $t
-        if (Test-Path $p) {
-            Remove-Item $p -Recurse -Force
-            Write-Ok "$t 已删除"
-            $found = $true
-        }
+    $t = 'dist'
+    $p = Join-Path $Root $t
+    if (Test-Path $p) {
+        Remove-Item $p -Recurse -Force
+        Write-Ok "$t 已删除"
+        $found = $true
     }
     if (-not $found) { Write-Info "没有需要清理的内容" }
     Pause-Return
@@ -162,7 +154,7 @@ function Clean-Build {
 # ── 启动检查 ────────────────────────────────────────────────
 if (-not (Test-Path (Join-Path $Root 'package.json'))) {
     Write-Err "未找到 package.json，无法确定项目根目录：$Root"
-    Write-Err "请在项目目录（the-play）内运行本脚本"
+    Write-Err "请在项目目录（the-bunker）内运行本脚本"
     exit 1
 }
 $EnvLine = Get-EnvLine
@@ -172,14 +164,13 @@ if (-not $EnvLine) { exit 1 }
 while ($true) {
     Clear-Host
     Write-Host ""
-    Write-Host "The Play · 开发助手" -ForegroundColor Cyan
+    Write-Host "The Bunker · 开发助手" -ForegroundColor Cyan
     Write-Info $EnvLine
     Write-Host ("─" * 64) -ForegroundColor DarkGray
     Write-Host ""
-    Write-Host "  1  安装依赖       5  类型检查"
-    Write-Host "  2  开发环境       6  图集工具"
-    Write-Host "  3  构建生产版本   7  清理产物"
-    Write-Host "  4  打包应用       0  退出"
+    Write-Host "  1  安装依赖       4  类型检查"
+    Write-Host "  2  开发环境       5  预览构建"
+    Write-Host "  3  构建生产版本   6  清理产物"
     Write-Host ""
 
     $choice = Read-Host " 请选择操作"
@@ -187,10 +178,9 @@ while ($true) {
         '1' { Install-Deps }
         '2' { Start-Dev }
         '3' { Build-Prod }
-        '4' { Package-App }
-        '5' { Type-Check }
-        '6' { Invoke-Gallery }
-        '7' { Clean-Build }
+        '4' { Type-Check }
+        '5' { Start-Preview }
+        '6' { Clean-Build }
         '0' {
             Write-Host ""
             Write-Host " 再见！" -ForegroundColor Cyan
